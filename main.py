@@ -142,18 +142,62 @@ async def receive_text(message: Message):
 
         user_language[message.from_user.id] = False
 
-        await message.answer(
-            f"""
-Detected Text:
+       kb = InlineKeyboardBuilder()
 
-<code>{message.text}</code>
+kb.button(text="🇺🇸 English", callback_data=f"lang_en|{message.text}")
+kb.button(text="🇪🇸 Spanish", callback_data=f"lang_es|{message.text}")
+kb.button(text="🇫🇷 French", callback_data=f"lang_fr|{message.text}")
+kb.button(text="🇩🇪 German", callback_data=f"lang_de|{message.text}")
+kb.button(text="🇮🇹 Italian", callback_data=f"lang_it|{message.text}")
+kb.button(text="🇯🇵 Japanese", callback_data=f"lang_ja|{message.text}")
 
-✅ Great!
+kb.adjust(2)
 
-Translation API will process this in the next update.
+await message.answer(
+    "🌍 Choose the language you want to translate into:",
+    reply_markup=kb.as_markup()
+)
+@dp.callback_query(F.data.startswith("lang_"))
+async def translate_language(callback: CallbackQuery):
+
+    await callback.answer("⏳ Translating...")
+
+    data = callback.data.split("|")
+
+    target = data[0].replace("lang_", "")
+
+    text = data[1]
+
+    url = "https://translate.argosopentech.com/translate"
+
+    payload = {
+        "q": text,
+        "source": "auto",
+        "target": target,
+        "format": "text"
+    }
+
+    async with aiohttp.ClientSession() as session:
+
+        async with session.post(url, json=payload) as response:
+
+            if response.status != 200:
+                await callback.message.answer(
+                    "❌ Translation service is currently unavailable. Please try again later."
+                )
+                return
+
+            result = await response.json()
+
+            translated = result.get("translatedText", "Translation failed.")
+
+            await callback.message.answer(
+                f"""
+🌍 Translation
+
+{translated}
 """
-        )
-
+            )
 
 async def main():
     await dp.start_polling(bot)
