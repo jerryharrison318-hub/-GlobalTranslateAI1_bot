@@ -1,5 +1,3 @@
-from translator import translate
-from languages import LANGUAGES
 import os
 import asyncio
 import logging
@@ -12,90 +10,128 @@ from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
     CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
 )
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-logging.basicConfig(level=logging.INFO)
+from translator import translate
+from languages import LANGUAGES
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise Exception("BOT_TOKEN is missing!")
+    raise RuntimeError("BOT_TOKEN environment variable is missing.")
 
 bot = Bot(
     token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    default=DefaultBotProperties(
+        parse_mode=ParseMode.HTML
+    ),
 )
 
 dp = Dispatcher()
 
-user_language = {}
+waiting_users = {}
+pending_text = {}
 
-# -------------------- START --------------------
+
+def main_menu():
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🌍 Translate",
+                    callback_data="translate",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📚 Languages",
+                    callback_data="languages",
+                ),
+                InlineKeyboardButton(
+                    text="❓ Help",
+                    callback_data="help",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="ℹ️ About",
+                    callback_data="about",
+                )
+            ],
+        ]
+    )
+
+
+def language_keyboard():
+
+    rows = []
+
+    row = []
+
+    for code, name in LANGUAGES.items():
+
+        row.append(
+            InlineKeyboardButton(
+                text=name,
+                callback_data=f"lang:{code}",
+            )
+        )
+
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+
+    if row:
+        rows.append(row)
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=rows
+    )
+
 
 @dp.message(CommandStart())
 async def start(message: Message):
 
-    kb = InlineKeyboardBuilder()
-
-    kb.button(text="🌍 Translate", callback_data="translate")
-    kb.button(text="📚 Languages", callback_data="languages")
-    kb.button(text="ℹ️ About", callback_data="about")
-    kb.button(text="❓ Help", callback_data="help")
-
-    kb.adjust(2)
-
-    await message.answer(
-        """
+    text = """
 🌍 <b>GlobalTranslate AI</b>
 
-Translate text into over 100+ languages.
+Welcome!
 
-Perfect for:
+Translate text instantly into multiple languages.
 
-🎓 Students
-✈️ Travelers
-💼 Business
-🌎 Everyday Conversation
+Features
+
+✅ Auto Language Detection
+✅ Fast Translation
+✅ Multiple Languages
+✅ Easy To Use
 
 Choose an option below.
-""",
-        reply_markup=kb.as_markup()
+"""
+
+    await message.answer(
+        text,
+        reply_markup=main_menu(),
     )
 
-# -------------------- BUTTONS --------------------
 
 @dp.callback_query(F.data == "translate")
-async def translate(callback: CallbackQuery):
+async def translate_button(callback: CallbackQuery):
 
-    user_language[callback.from_user.id] = True
+    waiting_users[
+        callback.from_user.id
+    ] = True
 
     await callback.message.answer(
         "✍️ Send me the text you want to translate."
-    )
-
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "languages")
-async def languages(callback: CallbackQuery):
-
-    await callback.message.answer(
-        """
-🌍 Supported Languages
-
-🇺🇸 English
-🇪🇸 Spanish
-🇫🇷 French
-🇩🇪 German
-🇮🇹 Italian
-🇯🇵 Japanese
-🇰🇷 Korean
-🇨🇳 Chinese
-🇷🇺 Russian
-
-...and many more.
-"""
     )
 
     await callback.answer()
@@ -108,7 +144,11 @@ async def about(callback: CallbackQuery):
         """
 🌍 <b>GlobalTranslate AI</b>
 
-Fast, simple and free language translation directly inside Telegram.
+Version 1.0
+
+A free Telegram translation assistant powered by LibreTranslate.
+
+Created for students, travelers and businesses.
 """
     )
 
@@ -116,94 +156,177 @@ Fast, simple and free language translation directly inside Telegram.
 
 
 @dp.callback_query(F.data == "help")
-async def help(callback: CallbackQuery):
+async def help_button(callback: CallbackQuery):
 
     await callback.message.answer(
         """
-How to use:
+<b>How To Use</b>
 
-1️⃣ Click Translate
+1. Press 🌍 Translate
 
-2️⃣ Send your text
+2. Send your text
 
-3️⃣ Choose a language
+3. Choose the language
 
-4️⃣ Receive your translation
+4. Receive your translation
 """
     )
+
+    await callback.answer()@dp.callback_query(F.data == "languages")
+async def languages(callback: CallbackQuery):
+
+    text = "<b>Supported Languages</b>\n\n"
+
+    for _, language in LANGUAGES.items():
+        text += f"{language}\n"
+
+    await callback.message.answer(text)
 
     await callback.answer()
 
 
-# -------------------- USER MESSAGE --------------------
-
 @dp.message()
 async def receive_text(message: Message):
 
-    if user_language.get(message.from_user.id):
+    user_id = message.from_user.id
 
-        user_language[message.from_user.id] = False
+    if not waiting_users.get(user_id):
+        return
 
-       kb = InlineKeyboardBuilder()
+    waiting_users[user_id] = False
 
-kb.button(text="🇺🇸 English", callback_data=f"lang_en|{message.text}")
-kb.button(text="🇪🇸 Spanish", callback_data=f"lang_es|{message.text}")
-kb.button(text="🇫🇷 French", callback_data=f"lang_fr|{message.text}")
-kb.button(text="🇩🇪 German", callback_data=f"lang_de|{message.text}")
-kb.button(text="🇮🇹 Italian", callback_data=f"lang_it|{message.text}")
-kb.button(text="🇯🇵 Japanese", callback_data=f"lang_ja|{message.text}")
+    pending_text[user_id] = message.text
 
-kb.adjust(2)
+    await message.answer(
+        "🌍 Select the language you want to translate into:",
+        reply_markup=language_keyboard(),
+    )
 
-await message.answer(
-    "🌍 Choose the language you want to translate into:",
-    reply_markup=kb.as_markup()
-)
-@dp.callback_query(F.data.startswith("lang_"))
-async def translate_language(callback: CallbackQuery):
 
-    await callback.answer("⏳ Translating...")
+@dp.callback_query(F.data.startswith("lang:"))
+async def translate_callback(callback: CallbackQuery):
 
-    data = callback.data.split("|")
+    user_id = callback.from_user.id
 
-    target = data[0].replace("lang_", "")
+    if user_id not in pending_text:
 
-    text = data[1]
+        await callback.answer(
+            "No text found.",
+            show_alert=True,
+        )
 
-    url = "https://translate.argosopentech.com/translate"
+        return
 
-    payload = {
-        "q": text,
-        "source": "auto",
-        "target": target,
-        "format": "text"
-    }
+    target = callback.data.split(":")[1]
 
-    async with aiohttp.ClientSession() as session:
+    text = pending_text[user_id]
 
-        async with session.post(url, json=payload) as response:
+    await callback.message.edit_text(
+        "⏳ Translating..."
+    )
 
-            if response.status != 200:
-                await callback.message.answer(
-                    "❌ Translation service is currently unavailable. Please try again later."
-                )
-                return
+    try:
 
-            result = await response.json()
+        translated = await translate(
+            text=text,
+            target=target,
+        )
 
-            translated = result.get("translatedText", "Translation failed.")
+        if not translated:
 
             await callback.message.answer(
-                f"""
-🌍 Translation
-
-{translated}
-"""
+                "❌ Translation failed.\nPlease try again later."
             )
 
-async def main():
-    await dp.start_polling(bot)
+            await callback.answer()
 
+            return
+
+        language_name = LANGUAGES.get(
+            target,
+            target.upper(),
+        )
+
+        await callback.message.answer(
+            f"""
+<b>✅ Translation Complete</b>
+
+🌍 <b>Target Language:</b>
+{language_name}
+
+📝 <b>Original Text:</b>
+
+<code>{text}</code>
+
+📖 <b>Translated Text:</b>
+
+<code>{translated}</code>
+""",
+            reply_markup=main_menu(),
+        )
+
+        del pending_text[user_id]
+
+    except Exception as e:
+
+        logging.exception(e)
+
+        await callback.message.answer(
+            "❌ An unexpected error occurred."
+        )
+
+    await callback.answer()# -----------------------------
+# Error Handler
+# -----------------------------
+
+@dp.error()
+async def error_handler(event, exception):
+
+    logging.exception(
+        "Unhandled Error: %s",
+        exception
+    )
+
+    return True
+
+
+# -----------------------------
+# Startup
+# -----------------------------
+
+async def on_startup():
+
+    logging.info("===================================")
+    logging.info("🌍 GlobalTranslate AI Started")
+    logging.info("===================================")
+
+
+# -----------------------------
+# Main
+# -----------------------------
+
+async def main():
+
+    await on_startup()
+
+    await dp.start_polling(
+        bot,
+        allowed_updates=dp.resolve_used_update_types(),
+    )
+
+
+# -----------------------------
+# Run
+# -----------------------------
 
 if __name__ == "__main__":
-    asyncio.run(main())
+
+    try:
+
+        asyncio.run(main())
+
+    except (KeyboardInterrupt, SystemExit):
+
+        logging.info(
+            "Bot stopped."
+        )
