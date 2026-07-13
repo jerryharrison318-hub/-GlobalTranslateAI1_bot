@@ -1,3 +1,5 @@
+from translator import translate
+from languages import LANGUAGES
 import os
 import asyncio
 import logging
